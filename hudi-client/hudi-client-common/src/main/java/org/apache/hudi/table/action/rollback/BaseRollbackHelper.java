@@ -130,7 +130,7 @@ public class BaseRollbackHelper implements Serializable {
               .overBaseCommit(latestBaseInstant)
               .withFs(metaClient.getFs())
               .withFileExtension(HoodieLogFile.DELTA_EXTENSION).build();
-
+          LOG.info("testrollback writer.LogFile: "+ writer.getLogFile().getPath());
           // generate metadata
           if (doDelete) {
             Map<HoodieLogBlock.HeaderMetadataType, String> header = generateHeader(instantToRollback.getTimestamp());
@@ -152,6 +152,7 @@ public class BaseRollbackHelper implements Serializable {
         // This step is intentionally done after writer is closed. Guarantees that
         // getFileStatus would reflect correct stats and FileNotFoundException is not thrown in
         // cloud-storage : HUDI-168
+        LOG.info("after testrollback writer.LogFile: "+ writer.getLogFile().getPath());
         Map<FileStatus, Long> filesToNumBlocksRollback = Collections.singletonMap(
             metaClient.getFs().getFileStatus(Objects.requireNonNull(writer).getLogFile().getPath()),
             1L

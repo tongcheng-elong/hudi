@@ -104,6 +104,7 @@ import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -749,6 +750,24 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
     return rollback(commitInstantTime, pendingRollbackInfo, false);
   }
 
+  public static String getStackTrace() {
+    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+    if(stackTrace == null) {
+      return "no stack...";
+    }
+    StringBuffer stackTraceSB = new StringBuffer();
+    for(StackTraceElement stackTraceElement : stackTrace) {
+      if(stackTraceSB.length() > 0) {
+        stackTraceSB.append(" <- ");
+        stackTraceSB.append(System.getProperty("line.separator"));
+      }
+      stackTraceSB.append(MessageFormat.format("{0}.{1}() {2}"
+              ,stackTraceElement.getClassName()
+              ,stackTraceElement.getMethodName()
+              ,stackTraceElement.getLineNumber()));
+    }
+    return stackTraceSB.toString();
+  }
   /**
    * @Deprecated
    * Rollback the inflight record changes with the given commit time. This
@@ -762,6 +781,7 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
   @Deprecated
   public boolean rollback(final String commitInstantTime, Option<HoodiePendingRollbackInfo> pendingRollbackInfo, boolean skipLocking) throws HoodieRollbackException {
     LOG.info("Begin rollback of instant " + commitInstantTime);
+    LOG.info(getStackTrace());
     final String rollbackInstantTime = pendingRollbackInfo.map(entry -> entry.getRollbackInstant().getTimestamp()).orElse(HoodieActiveTimeline.createNewInstantTime());
     final Timer.Context timerContext = this.metrics.getRollbackCtx();
     try {
@@ -1178,7 +1198,10 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
    * @return map of pending commits to be rolled-back instants to Rollback Instant and Rollback plan Pair.
    */
   protected Map<String, Option<HoodiePendingRollbackInfo>> getPendingRollbackInfos(HoodieTableMetaClient metaClient, boolean ignoreCompactionAndClusteringInstants) {
-    List<HoodieInstant> instants = metaClient.getActiveTimeline().filterPendingRollbackTimeline().getInstants().collect(Collectors.toList());
+    List<HoodieInstant> instants = metaClient.getActiveTimeline().reload().filterPendingRollbackTimeline().getInstants().collect(Collectors.toList());
+    instants.forEach(s-> {
+      LOG.info("get inflighting rollback instant"+ s);
+    });
     Map<String, Option<HoodiePendingRollbackInfo>> infoMap = new HashMap<>();
     for (HoodieInstant rollbackInstant : instants) {
       HoodieRollbackPlan rollbackPlan;

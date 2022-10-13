@@ -217,15 +217,17 @@ public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
   private void rolloverIfNeeded() throws IOException {
     // Roll over if the size is past the threshold
     if (getCurrentSize() > sizeThreshold) {
-      LOG.info("CurrentSize " + getCurrentSize() + " has reached threshold " + sizeThreshold
+      LOG.info("Log file path" + logFile.getPath() + "CurrentSize " + getCurrentSize() + " has reached threshold " + sizeThreshold
           + ". Rolling over to the next version");
       rollOver();
+      createNewFile();
     }
   }
 
   private void rollOver() throws IOException {
     closeStream();
     this.logFile = logFile.rollOver(fs, rolloverLogWriteToken);
+    LOG.info("After RollOver Log file path" + logFile.getPath());
     this.closed = false;
   }
 
