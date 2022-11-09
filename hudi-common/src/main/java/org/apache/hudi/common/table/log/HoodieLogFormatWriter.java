@@ -220,7 +220,6 @@ public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
       LOG.info("Log file path" + logFile.getPath() + "CurrentSize " + getCurrentSize() + " has reached threshold " + sizeThreshold
           + ". Rolling over to the next version");
       rollOver();
-      createNewFile();
     }
   }
 
