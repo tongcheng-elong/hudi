@@ -170,6 +170,7 @@ public class StreamWriteOperatorCoordinator
 
   @Override
   public void start() throws Exception {
+    LOG.info("starting Coordinator");
     // setup classloader for APIs that use reflection without taking ClassLoader param
     // reference: https://stackoverflow.com/questions/1771679/difference-between-threads-context-class-loader-and-normal-classloader
     Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
@@ -195,6 +196,7 @@ public class StreamWriteOperatorCoordinator
 
   @Override
   public void close() throws Exception {
+    LOG.info("closing Coordinator");
     // teardown the resource
     if (executor != null) {
       executor.close();
@@ -272,7 +274,10 @@ public class StreamWriteOperatorCoordinator
     ValidationUtils.checkState(operatorEvent instanceof WriteMetadataEvent,
         "The coordinator can only handle WriteMetaEvent");
     WriteMetadataEvent event = (WriteMetadataEvent) operatorEvent;
-
+    LOG.info("receive event {} from {} instant {}",
+            event.getTaskID() + ":" + event.isLastBatch() + ":" + event.isEndInput(),
+            i, event.getInstantTime()
+    );
     if (event.isEndInput()) {
       // handle end input event synchronously
       // wrap handleEndInputEvent in executeSync to preserve the order of events
