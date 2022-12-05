@@ -18,6 +18,7 @@
 
 package org.apache.hudi.source;
 
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.BaseFile;
 import org.apache.hudi.common.model.FileSlice;
@@ -449,7 +450,7 @@ public class IncrementalInputSplits implements Serializable {
       // read the archived metadata if the start instant is archived.
       HoodieTimeline archivedTimeline = getArchivedReadTimeline(metaClient, instantRange.getStartInstant());
       if (!archivedTimeline.empty()) {
-        return archivedTimeline.getInstants()
+        return archivedTimeline.getInstantsAsStream()
             .map(instant -> WriteProfiles.getCommitMetadata(tableName, path, instant, archivedTimeline)).collect(Collectors.toList());
       }
     }
@@ -474,19 +475,29 @@ public class IncrementalInputSplits implements Serializable {
    * @param issuedInstant  The last issued instant that has already been delivered to downstream
    * @return the filtered hoodie instants
    */
-  private List<HoodieInstant> filterInstantsWithRange(
+  @VisibleForTesting
+  public List<HoodieInstant> filterInstantsWithRange(
       HoodieTimeline commitTimeline,
       final String issuedInstant) {
     HoodieTimeline completedTimeline = commitTimeline.filterCompletedInstants();
     if (issuedInstant != null) {
       // returns early for streaming mode
       return commitTimeline
-          .getInstants()
+          .getInstantsAsStream()
           .filter(s -> HoodieTimeline.compareTimestamps(s.getTimestamp(), GREATER_THAN, issuedInstant))
           .collect(Collectors.toList());
     }
 
-    Stream<HoodieInstant> instantStream = completedTimeline.getInstants();
+    Stream<HoodieInstant> instantStream = completedTimeline.getInstantsAsStream();
+
+    if (OptionsResolver.hasNoSpecificReadCommits(this.conf)) {
+      // by default read from the latest commit
+      List<HoodieInstant> instants = completedTimeline.getInstants();
+      if (instants.size() > 1) {
+        return Collections.singletonList(instants.get(instants.size() - 1));
+      }
+      return instants;
+    }
 
     if (OptionsResolver.isSpecificStartCommit(this.conf)) {
       final String startCommit = this.conf.get(FlinkOptions.READ_START_COMMIT);
