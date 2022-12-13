@@ -18,14 +18,13 @@
 
 package org.apache.hudi.table.action.commit;
 
-import org.apache.avro.Schema;
-import org.apache.avro.SchemaCompatibility;
-import org.apache.avro.generic.GenericRecord;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
+import org.apache.hudi.avro.HoodieAvroUtils;
+import org.apache.hudi.client.utils.MergingIterator;
+import org.apache.hudi.common.config.HoodieCommonConfig;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.util.ClosableIterator;
 import org.apache.hudi.common.util.InternalSchemaCache;
 import org.apache.hudi.common.util.Option;
@@ -44,6 +43,12 @@ import org.apache.hudi.io.storage.HoodieFileReader;
 import org.apache.hudi.io.storage.HoodieFileReaderFactory;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.util.QueueBasedExecutorFactory;
+
+import org.apache.avro.Schema;
+import org.apache.avro.SchemaCompatibility;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
 import java.util.Iterator;
@@ -76,10 +81,11 @@ public class HoodieMergeHelper<T extends HoodieRecordPayload> extends BaseMergeH
     HoodieBaseFile baseFile = mergeHandle.baseFileForMerge();
 
     Configuration hadoopConf = new Configuration(table.getHadoopConf());
-    HoodieFileReader<GenericRecord> reader = HoodieFileReaderFactory.getFileReader(hadoopConf, mergeHandle.getOldFilePath());
+    HoodieFileReader<GenericRecord> baseFileReader = HoodieFileReaderFactory.getFileReader(hadoopConf, mergeHandle.getOldFilePath());
+    HoodieFileReader<GenericRecord> bootstrapFileReader = null;
 
     Schema writerSchema = mergeHandle.getWriterSchemaWithMetaFields();
-    Schema readerSchema = reader.getSchema();
+    Schema readerSchema = baseFileReader.getSchema();
 
     // In case Advanced Schema Evolution is enabled we might need to rewrite currently
     // persisted records to adhere to an evolved schema
@@ -104,11 +110,17 @@ public class HoodieMergeHelper<T extends HoodieRecordPayload> extends BaseMergeH
 
       // In case writer's schema is simply a projection of the reader's one we can read
       // the records in the projected schema directly
-      ClosableIterator<GenericRecord> baseFileRecordIterator =
-          reader.getRecordIterator(isPureProjection ? writerSchema : readerSchema);
+      ClosableIterator<GenericRecord> baseFileRecordIterator = baseFileReader.getRecordIterator(isPureProjection ? writerSchema : readerSchema);
+
       if (baseFile.getBootstrapBaseFile().isPresent()) {
         Path bootstrapFilePath = new Path(baseFile.getBootstrapBaseFile().get().getPath());
-        recordIterator = getMergingIterator(table, mergeHandle, bootstrapFilePath, baseFileRecordIterator);
+        Configuration bootstrapFileConfig = new Configuration(table.getHadoopConf());
+        bootstrapFileReader = HoodieFileReaderFactory.getFileReader(bootstrapFileConfig, bootstrapFilePath);
+        recordIterator = new MergingIterator<>(
+            baseFileRecordIterator,
+            bootstrapFileReader.getRecordIterator(),
+            (inputRecordPair) -> HoodieAvroUtils.stitchRecords(inputRecordPair.getLeft(), inputRecordPair.getRight(), mergeHandle.getWriterSchemaWithMetaFields()));
+
       } else if (schemaEvolutionTransformerOpt.isPresent()) {
         recordIterator = new MappingIterator<>(baseFileRecordIterator,
             schemaEvolutionTransformerOpt.get());
@@ -130,7 +142,10 @@ public class HoodieMergeHelper<T extends HoodieRecordPayload> extends BaseMergeH
     } finally {
       // HUDI-2875: mergeHandle is not thread safe, we should totally terminate record inputting
       // and executor firstly and then close mergeHandle.
-      reader.close();
+      baseFileReader.close();
+      if (bootstrapFileReader != null) {
+        bootstrapFileReader.close();
+      }
       if (null != wrapper) {
         wrapper.shutdownNow();
         wrapper.awaitTermination();
@@ -149,10 +164,16 @@ public class HoodieMergeHelper<T extends HoodieRecordPayload> extends BaseMergeH
       // check implicitly add columns, and position reorder(spark sql may change cols order)
       InternalSchema querySchema = AvroSchemaEvolutionUtils.reconcileSchema(writerSchema, querySchemaOpt.get());
       long commitInstantTime = Long.parseLong(baseFile.getCommitTime());
-      InternalSchema writeInternalSchema = InternalSchemaCache.searchSchemaAndCache(commitInstantTime, metaClient, writeConfig.getInternalSchemaCacheEnable());
-      if (writeInternalSchema.isEmptySchema()) {
-        throw new HoodieException(String.format("cannot find file schema for current commit %s", commitInstantTime));
+      InternalSchema fileSchema = InternalSchemaCache.getInternalSchemaByVersionId(commitInstantTime, metaClient);
+      if (fileSchema.isEmptySchema() && writeConfig.getBoolean(HoodieCommonConfig.RECONCILE_SCHEMA)) {
+        TableSchemaResolver tableSchemaResolver = new TableSchemaResolver(metaClient);
+        try {
+          fileSchema = AvroInternalSchemaConverter.convert(tableSchemaResolver.getTableAvroSchema(true));
+        } catch (Exception e) {
+          throw new HoodieException(String.format("Failed to get InternalSchema for given versionId: %s", commitInstantTime), e);
+        }
       }
+      final InternalSchema writeInternalSchema = fileSchema;
       List<String> colNamesFromQuerySchema = querySchema.getAllColsFullName();
       List<String> colNamesFromWriteSchema = writeInternalSchema.getAllColsFullName();
       List<String> sameCols = colNamesFromWriteSchema.stream()

@@ -104,20 +104,20 @@ public abstract class MultipleSparkJobExecutionStrategy<T extends HoodieRecordPa
     boolean shouldPreserveMetadata = Option.ofNullable(clusteringPlan.getPreserveHoodieMetadata()).orElse(false);
     // execute clustering for each group async and collect WriteStatus
     Stream<HoodieData<WriteStatus>> writeStatusesStream = FutureUtils.allOf(
-        clusteringPlan.getInputGroups().stream()
-            .map(inputGroup -> {
-              if (getWriteConfig().getBooleanOrDefault("hoodie.datasource.write.row.writer.enable", false)) {
-                return runClusteringForGroupAsyncAsRow(inputGroup,
-                    clusteringPlan.getStrategy().getStrategyParams(),
-                    shouldPreserveMetadata,
-                    instantTime);
-              }
-              return runClusteringForGroupAsync(inputGroup,
-                  clusteringPlan.getStrategy().getStrategyParams(),
-                  shouldPreserveMetadata,
-                  instantTime);
-            })
-            .collect(Collectors.toList()))
+            clusteringPlan.getInputGroups().stream()
+                .map(inputGroup -> {
+                  if (getWriteConfig().getBooleanOrDefault("hoodie.datasource.write.row.writer.enable", false)) {
+                    return runClusteringForGroupAsyncAsRow(inputGroup,
+                        clusteringPlan.getStrategy().getStrategyParams(),
+                        shouldPreserveMetadata,
+                        instantTime);
+                  }
+                  return runClusteringForGroupAsync(inputGroup,
+                      clusteringPlan.getStrategy().getStrategyParams(),
+                      shouldPreserveMetadata,
+                      instantTime);
+                })
+                .collect(Collectors.toList()))
         .join()
         .stream();
     JavaRDD<WriteStatus>[] writeStatuses = convertStreamToArray(writeStatusesStream.map(HoodieJavaRDD::getJavaRDD));
@@ -196,17 +196,20 @@ public abstract class MultipleSparkJobExecutionStrategy<T extends HoodieRecordPa
           return isRowPartitioner
               ? new RowSpatialCurveSortPartitioner(getWriteConfig())
               : new RDDSpatialCurveSortPartitioner((HoodieSparkEngineContext) getEngineContext(), orderByColumns, layoutOptStrategy,
-                  getWriteConfig().getLayoutOptimizationCurveBuildMethod(), HoodieAvroUtils.addMetadataFields(schema));
+              getWriteConfig().getLayoutOptimizationCurveBuildMethod(), HoodieAvroUtils.addMetadataFields(schema));
         case LINEAR:
           return isRowPartitioner
               ? new RowCustomColumnsSortPartitioner(orderByColumns)
               : new RDDCustomColumnsSortPartitioner(orderByColumns, HoodieAvroUtils.addMetadataFields(schema),
-                  getWriteConfig().isConsistentLogicalTimestampEnabled());
+              getWriteConfig().isConsistentLogicalTimestampEnabled());
         default:
           throw new UnsupportedOperationException(String.format("Layout optimization strategy '%s' is not supported", layoutOptStrategy));
       }
-    }).orElse(isRowPartitioner ? BulkInsertInternalPartitionerWithRowsFactory.get(getWriteConfig().getBulkInsertSortMode()) :
-        BulkInsertInternalPartitionerFactory.get(getWriteConfig().getBulkInsertSortMode()));
+    }).orElse(isRowPartitioner
+        ? BulkInsertInternalPartitionerWithRowsFactory.get(
+        getWriteConfig().getBulkInsertSortMode(), getHoodieTable().isPartitioned(), true)
+        : BulkInsertInternalPartitionerFactory.get(
+        getWriteConfig().getBulkInsertSortMode(), getHoodieTable().isPartitioned(), true));
   }
 
   /**
@@ -264,8 +267,8 @@ public abstract class MultipleSparkJobExecutionStrategy<T extends HoodieRecordPa
    * Read records from baseFiles, apply updates and convert to RDD.
    */
   private HoodieData<HoodieRecord<T>> readRecordsForGroupWithLogs(JavaSparkContext jsc,
-                                                               List<ClusteringOperation> clusteringOps,
-                                                               String instantTime) {
+                                                                  List<ClusteringOperation> clusteringOps,
+                                                                  String instantTime) {
     HoodieWriteConfig config = getWriteConfig();
     HoodieTable table = getHoodieTable();
     return HoodieJavaRDD.of(jsc.parallelize(clusteringOps, clusteringOps.size()).mapPartitions(clusteringOpsPartition -> {
@@ -315,7 +318,7 @@ public abstract class MultipleSparkJobExecutionStrategy<T extends HoodieRecordPa
    * Read records from baseFiles and convert to RDD.
    */
   private HoodieData<HoodieRecord<T>> readRecordsForGroupBaseFiles(JavaSparkContext jsc,
-                                                                List<ClusteringOperation> clusteringOps) {
+                                                                   List<ClusteringOperation> clusteringOps) {
     SerializableConfiguration hadoopConf = new SerializableConfiguration(getHoodieTable().getHadoopConf());
     HoodieWriteConfig writeConfig = getWriteConfig();
 

@@ -15,23 +15,19 @@
  * limitations under the License.
  */
 
-package org.apache.hudi.sql;
+package org.apache.spark.sql.hudi.analysis
 
-import org.apache.avro.generic.GenericRecord;
-import org.apache.avro.generic.IndexedRecord;
+import org.apache.spark.sql.catalyst.FunctionIdentifier
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionInfo}
+import org.apache.spark.sql.catalyst.plans.logcal.HoodieQuery
 
-/***
- * A interface for CodeGen to execute expressions on the record.
- */
-public interface IExpressionEvaluator {
+object TableValuedFunctions {
 
-  /**
-   * Evaluate the result of the expressions based on the record.
-   */
-  GenericRecord eval(IndexedRecord record);
-
-  /**
-   * Get the code of the expressions. This is used for debug.
-   */
-  String getCode();
+  val funcs = Seq(
+    (
+      FunctionIdentifier(HoodieQuery.FUNC_NAME),
+      new ExpressionInfo(HoodieQuery.getClass.getCanonicalName, HoodieQuery.FUNC_NAME),
+      (args: Seq[Expression]) => new HoodieQuery(args)
+    )
+  )
 }
