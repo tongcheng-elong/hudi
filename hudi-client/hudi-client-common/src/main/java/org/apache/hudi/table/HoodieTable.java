@@ -495,7 +495,17 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
    *
    * @return information on cleaned file slices
    */
-  public abstract HoodieCleanMetadata clean(HoodieEngineContext context, String cleanInstantTime, boolean skipLocking);
+  @Deprecated
+  public HoodieCleanMetadata clean(HoodieEngineContext context, String cleanInstantTime, boolean skipLocking) {
+    return clean(context, cleanInstantTime);
+  }
+
+  /**
+   * Executes a new clean action.
+   *
+   * @return information on cleaned file slices
+   */
+  public abstract HoodieCleanMetadata clean(HoodieEngineContext context, String cleanInstantTime);
 
   /**
    * Schedule rollback for the instant time.
@@ -560,15 +570,15 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
    * that would cause any running queries that are accessing file slices written after the instant to fail.
    */
   public abstract HoodieRestoreMetadata restore(HoodieEngineContext context,
-                                                String restoreInstantTime,
-                                                String instantToRestore);
+                                                String restoreInstantTimestamp,
+                                                String savepointToRestoreTimestamp);
 
   /**
    * Schedules Restore for the table to the given instant.
    */
   public abstract Option<HoodieRestorePlan> scheduleRestore(HoodieEngineContext context,
-                                                    String restoreInstantTime,
-                                                    String instantToRestore);
+                                                    String restoreInstantTimestamp,
+                                                    String savepointToRestoreTimestamp);
 
   public void rollbackInflightCompaction(HoodieInstant inflightInstant) {
     rollbackInflightCompaction(inflightInstant, s -> Option.empty());
