@@ -438,7 +438,9 @@ public class FlinkOptions extends HoodieConfig {
       .key(HoodieWriteConfig.KEYGENERATOR_TYPE.key())
       .stringType()
       .defaultValue(KeyGeneratorType.SIMPLE.name())
-      .withDescription("Key generator type, that implements will extract the key out of incoming record");
+      .withDescription("Key generator type, that implements will extract the key out of incoming record. "
+          + "**Note** This is being actively worked on. Please use "
+          + "`hoodie.datasource.write.keygenerator.class` instead.");
 
   public static final String PARTITION_FORMAT_HOUR = "yyyyMMddHH";
   public static final String PARTITION_FORMAT_DAY = "yyyyMMdd";
@@ -546,6 +548,12 @@ public class FlinkOptions extends HoodieConfig {
       .booleanType()
       .defaultValue(true)
       .withDescription("Whether to sort the inputs by specific fields for bulk insert tasks, default true");
+
+  public static final ConfigOption<Boolean> WRITE_BULK_INSERT_SORT_INPUT_BY_RECORD_KEY = ConfigOptions
+          .key("write.bulk_insert.sort_input.by_record_key")
+          .booleanType()
+          .defaultValue(false)
+          .withDescription("Whether to sort the inputs by record keys for bulk insert tasks, default false");
 
   public static final ConfigOption<Integer> WRITE_SORT_MEMORY = ConfigOptions
       .key("write.sort.memory")
