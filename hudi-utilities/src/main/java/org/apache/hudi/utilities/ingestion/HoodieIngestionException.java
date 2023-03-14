@@ -16,16 +16,27 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.catalyst.plans.logical
+package org.apache.hudi.utilities.ingestion;
 
-import org.apache.spark.sql.catalyst.trees.TreeNode
+import org.apache.hudi.exception.HoodieException;
 
 /**
- * NOTE: This is a sham trait providing a stub method definition which is not used anywhere.
- * This is required just to be able to compile the code that relies on [[UnaryLike]]
- * (introduced in Spark 3.2) against Spark < 3.2
+ * The root exception class for any failure with {@link HoodieIngestionService}.
  */
-trait HoodieUnaryLikeSham[T <: TreeNode[T]] {
-  self: TreeNode[T] =>
-  protected def withNewChildInternal(newChild: T): T
+public class HoodieIngestionException extends HoodieException {
+
+  public HoodieIngestionException() {
+  }
+
+  public HoodieIngestionException(String message) {
+    super(message);
+  }
+
+  public HoodieIngestionException(String message, Throwable t) {
+    super(message, t);
+  }
+
+  public HoodieIngestionException(Throwable t) {
+    super(t);
+  }
 }
