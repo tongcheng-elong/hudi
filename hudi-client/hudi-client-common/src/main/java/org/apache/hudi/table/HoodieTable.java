@@ -87,13 +87,14 @@ import org.apache.avro.specific.SpecificRecordBase;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -122,7 +123,7 @@ import static org.apache.hudi.metadata.HoodieTableMetadataUtil.metadataPartition
  */
 public abstract class HoodieTable<T, I, K, O> implements Serializable {
 
-  private static final Logger LOG = LogManager.getLogger(HoodieTable.class);
+  private static final Logger LOG = LoggerFactory.getLogger(HoodieTable.class);
 
   protected final HoodieWriteConfig config;
   protected final HoodieTableMetaClient metaClient;
@@ -131,6 +132,7 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
   protected final TaskContextSupplier taskContextSupplier;
   private final HoodieTableMetadata metadata;
   private final HoodieStorageLayout storageLayout;
+  private final boolean isMetadataTable;
 
   private transient FileSystemViewManager viewManager;
   protected final transient HoodieEngineContext context;
@@ -139,6 +141,7 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
     this.config = config;
     this.hadoopConfiguration = context.getHadoopConf();
     this.context = context;
+    this.isMetadataTable = HoodieTableMetadata.isMetadataTable(config.getBasePath());
 
     HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder().fromProperties(config.getMetadataConfig().getProps())
         .build();
@@ -150,6 +153,10 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
     this.index = getIndex(config, context);
     this.storageLayout = getStorageLayout(config);
     this.taskContextSupplier = context.getTaskContextSupplier();
+  }
+
+  public boolean isMetadataTable() {
+    return isMetadataTable;
   }
 
   protected abstract HoodieIndex<?, ?> getIndex(HoodieWriteConfig config, HoodieEngineContext context);
@@ -660,23 +667,20 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
   private void deleteInvalidFilesByPartitions(HoodieEngineContext context, Map<String, List<Pair<String, String>>> invalidFilesByPartition) {
     // Now delete partially written files
     context.setJobStatus(this.getClass().getSimpleName(), "Delete invalid files generated during the write operation: " + config.getTableName());
-    context.map(new ArrayList<>(invalidFilesByPartition.values()), partitionWithFileList -> {
-      final FileSystem fileSystem = metaClient.getFs();
-      LOG.info("Deleting invalid data files=" + partitionWithFileList);
-      if (partitionWithFileList.isEmpty()) {
-        return true;
-      }
-      // Delete
-      partitionWithFileList.stream().map(Pair::getValue).forEach(file -> {
-        try {
-          fileSystem.delete(new Path(file), false);
-        } catch (IOException e) {
-          throw new HoodieIOException(e.getMessage(), e);
-        }
-      });
-
-      return true;
-    }, config.getFinalizeWriteParallelism());
+    context.map(invalidFilesByPartition.values().stream()
+            .flatMap(Collection::stream)
+            .collect(Collectors.toList()),
+        partitionFilePair -> {
+          final FileSystem fileSystem = metaClient.getFs();
+          LOG.info("Deleting invalid data file=" + partitionFilePair);
+          // Delete
+          try {
+            fileSystem.delete(new Path(partitionFilePair.getValue()), false);
+          } catch (IOException e) {
+            throw new HoodieIOException(e.getMessage(), e);
+          }
+          return true;
+        }, config.getFinalizeWriteParallelism());
   }
 
   /**
@@ -825,6 +829,10 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
   }
 
   public void validateUpsertSchema() throws HoodieUpsertException {
+    if (isMetadataTable) {
+      return;
+    }
+    // validate only for data table.
     try {
       validateSchema();
     } catch (HoodieException e) {
@@ -833,6 +841,10 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
   }
 
   public void validateInsertSchema() throws HoodieInsertException {
+    if (isMetadataTable) {
+      return;
+    }
+    // validate only for data table
     try {
       validateSchema();
     } catch (HoodieException e) {
@@ -983,7 +995,7 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
     // (2) Index corresponding to this metadata partition is disabled in HoodieWriteConfig.
     // (3) The completed metadata partitions in table config contains this partition.
     // NOTE: Inflight metadata partitions are not considered as they could have been inflight due to async indexer.
-    if (HoodieTableMetadata.isMetadataTable(metaClient.getBasePath()) || !config.isMetadataTableEnabled()) {
+    if (isMetadataTable() || !config.isMetadataTableEnabled()) {
       return false;
     }
     boolean metadataIndexDisabled;

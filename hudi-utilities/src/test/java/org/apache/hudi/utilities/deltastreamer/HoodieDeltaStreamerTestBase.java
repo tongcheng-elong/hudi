@@ -28,9 +28,11 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.hive.MultiPartKeysValueExtractor;
 import org.apache.hudi.utilities.schema.FilebasedSchemaProvider;
 import org.apache.hudi.utilities.sources.TestDataSource;
+import org.apache.hudi.utilities.sources.TestParquetDFSSourceEmptyBatch;
 import org.apache.hudi.utilities.testutils.UtilitiesTestBase;
 
 import org.apache.avro.Schema;
@@ -64,6 +66,8 @@ public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
   static final String PROPS_INVALID_FILE = "test-invalid-props.properties";
   static final String PROPS_INVALID_TABLE_CONFIG_FILE = "test-invalid-table-config.properties";
   static final String PROPS_FILENAME_TEST_INVALID = "test-invalid.properties";
+  static final String PROPS_FILENAME_INFER_COMPLEX_KEYGEN = "test-infer-complex-keygen.properties";
+  static final String PROPS_FILENAME_INFER_NONPARTITIONED_KEYGEN = "test-infer-nonpartitioned-keygen.properties";
   static final String PROPS_FILENAME_TEST_CSV = "test-csv-dfs-source.properties";
   static final String PROPS_FILENAME_TEST_PARQUET = "test-parquet-dfs-source.properties";
   static final String PROPS_FILENAME_TEST_ORC = "test-orc-dfs-source.properties";
@@ -159,6 +163,19 @@ public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
     invalidProps.setProperty("hoodie.deltastreamer.schemaprovider.source.schema.file", dfsBasePath + "/source.avsc");
     invalidProps.setProperty("hoodie.deltastreamer.schemaprovider.target.schema.file", dfsBasePath + "/target.avsc");
     UtilitiesTestBase.Helpers.savePropsToDFS(invalidProps, dfs, dfsBasePath + "/" + PROPS_FILENAME_TEST_INVALID);
+
+    // Properties used for testing inferring key generator for complex key generator
+    TypedProperties inferKeygenProps = new TypedProperties();
+    inferKeygenProps.setProperty("include", "base.properties");
+    inferKeygenProps.setProperty("hoodie.datasource.write.recordkey.field", "timestamp,_row_key");
+    inferKeygenProps.setProperty("hoodie.datasource.write.partitionpath.field", "partition_path");
+    inferKeygenProps.setProperty("hoodie.deltastreamer.schemaprovider.source.schema.file", dfsBasePath + "/source.avsc");
+    inferKeygenProps.setProperty("hoodie.deltastreamer.schemaprovider.target.schema.file", dfsBasePath + "/target.avsc");
+    UtilitiesTestBase.Helpers.savePropsToDFS(inferKeygenProps, dfs, dfsBasePath + "/" + PROPS_FILENAME_INFER_COMPLEX_KEYGEN);
+
+    // Properties used for testing inferring key generator for non-partitioned key generator
+    inferKeygenProps.setProperty("hoodie.datasource.write.partitionpath.field", "");
+    UtilitiesTestBase.Helpers.savePropsToDFS(inferKeygenProps, dfs, dfsBasePath + "/" + PROPS_FILENAME_INFER_NONPARTITIONED_KEYGEN);
 
     TypedProperties props1 = new TypedProperties();
     populateAllCommonProps(props1, dfsBasePath, brokerAddress);
@@ -285,6 +302,58 @@ public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
       Helpers.saveParquetToDFS(Helpers.toGenericRecords(
           dataGenerator.generateUpdates(timestamp, numRecords)), new Path(path));
     }
+  }
+
+  protected void prepareParquetDFSSource(boolean useSchemaProvider, boolean hasTransformer, String emptyBatchParam) throws IOException {
+    prepareParquetDFSSource(useSchemaProvider, hasTransformer, "source.avsc", "target.avsc",
+        PROPS_FILENAME_TEST_PARQUET, PARQUET_SOURCE_ROOT, false, "partition_path", emptyBatchParam);
+  }
+
+  protected void prepareParquetDFSSource(boolean useSchemaProvider, boolean hasTransformer) throws IOException {
+    prepareParquetDFSSource(useSchemaProvider, hasTransformer, "");
+  }
+
+  protected void prepareParquetDFSSource(boolean useSchemaProvider, boolean hasTransformer, String sourceSchemaFile, String targetSchemaFile,
+                                       String propsFileName, String parquetSourceRoot, boolean addCommonProps, String partitionPath) throws IOException {
+    prepareParquetDFSSource(useSchemaProvider, hasTransformer, sourceSchemaFile, targetSchemaFile, propsFileName, parquetSourceRoot, addCommonProps,
+        partitionPath, "");
+  }
+
+  protected void prepareParquetDFSSource(boolean useSchemaProvider, boolean hasTransformer, String sourceSchemaFile, String targetSchemaFile,
+                                         String propsFileName, String parquetSourceRoot, boolean addCommonProps,
+                                         String partitionPath, String emptyBatchParam) throws IOException {
+    prepareParquetDFSSource(useSchemaProvider, hasTransformer, sourceSchemaFile, targetSchemaFile, propsFileName, parquetSourceRoot, addCommonProps,
+        partitionPath, emptyBatchParam, null);
+
+  }
+
+  protected void prepareParquetDFSSource(boolean useSchemaProvider, boolean hasTransformer, String sourceSchemaFile, String targetSchemaFile,
+                                       String propsFileName, String parquetSourceRoot, boolean addCommonProps,
+                                       String partitionPath, String emptyBatchParam, TypedProperties extraProps) throws IOException {
+    // Properties used for testing delta-streamer with Parquet source
+    TypedProperties parquetProps = new TypedProperties(extraProps);
+
+    if (addCommonProps) {
+      populateCommonProps(parquetProps, basePath);
+    }
+
+    parquetProps.setProperty("hoodie.datasource.write.keygenerator.class", TestHoodieDeltaStreamer.TestGenerator.class.getName());
+
+    parquetProps.setProperty("include", "base.properties");
+    parquetProps.setProperty("hoodie.embed.timeline.server", "false");
+    parquetProps.setProperty("hoodie.datasource.write.recordkey.field", "_row_key");
+    parquetProps.setProperty("hoodie.datasource.write.partitionpath.field", partitionPath);
+    if (useSchemaProvider) {
+      parquetProps.setProperty("hoodie.deltastreamer.schemaprovider.source.schema.file", basePath + "/" + sourceSchemaFile);
+      if (hasTransformer) {
+        parquetProps.setProperty("hoodie.deltastreamer.schemaprovider.target.schema.file", basePath + "/" + targetSchemaFile);
+      }
+    }
+    parquetProps.setProperty("hoodie.deltastreamer.source.dfs.root", parquetSourceRoot);
+    if (!StringUtils.isNullOrEmpty(emptyBatchParam)) {
+      parquetProps.setProperty(TestParquetDFSSourceEmptyBatch.RETURN_EMPTY_BATCH, emptyBatchParam);
+    }
+    UtilitiesTestBase.Helpers.savePropsToDFS(parquetProps, fs, basePath + "/" + propsFileName);
   }
 
   protected static void prepareORCDFSFiles(int numRecords) throws IOException {

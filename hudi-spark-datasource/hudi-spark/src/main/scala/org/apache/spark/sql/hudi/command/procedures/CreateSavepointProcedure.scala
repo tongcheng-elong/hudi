@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.hudi.command.procedures
 
+import org.apache.hudi.HoodieCLIUtils
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline
 import org.apache.hudi.exception.{HoodieException, HoodieSavepointException}
@@ -28,10 +29,11 @@ import java.util.function.Supplier
 
 class CreateSavepointProcedure extends BaseProcedure with ProcedureBuilder with Logging {
   private val PARAMETERS = Array[ProcedureParameter](
-    ProcedureParameter.required(0, "table", DataTypes.StringType, None),
-    ProcedureParameter.required(1, "commit_time", DataTypes.StringType, None),
+    ProcedureParameter.optional(0, "table", DataTypes.StringType),
+    ProcedureParameter.required(1, "commit_time", DataTypes.StringType),
     ProcedureParameter.optional(2, "user", DataTypes.StringType, ""),
-    ProcedureParameter.optional(3, "comments", DataTypes.StringType, "")
+    ProcedureParameter.optional(3, "comments", DataTypes.StringType, ""),
+    ProcedureParameter.optional(4, "path", DataTypes.StringType)
   )
 
   private val OUTPUT_TYPE = new StructType(Array[StructField](
@@ -46,11 +48,12 @@ class CreateSavepointProcedure extends BaseProcedure with ProcedureBuilder with 
     super.checkArgs(PARAMETERS, args)
 
     val tableName = getArgValueOrDefault(args, PARAMETERS(0))
+    val tablePath = getArgValueOrDefault(args, PARAMETERS(4))
     val commitTime = getArgValueOrDefault(args, PARAMETERS(1)).get.asInstanceOf[String]
     val user = getArgValueOrDefault(args, PARAMETERS(2)).get.asInstanceOf[String]
     val comments = getArgValueOrDefault(args, PARAMETERS(3)).get.asInstanceOf[String]
 
-    val basePath: String = getBasePath(tableName)
+    val basePath: String = getBasePath(tableName, tablePath)
     val metaClient = HoodieTableMetaClient.builder.setConf(jsc.hadoopConfiguration()).setBasePath(basePath).build
 
     val activeTimeline: HoodieActiveTimeline = metaClient.getActiveTimeline
@@ -58,7 +61,8 @@ class CreateSavepointProcedure extends BaseProcedure with ProcedureBuilder with 
       throw new HoodieException("Commit " + commitTime + " not found in Commits " + activeTimeline)
     }
 
-    val client = createHoodieClient(jsc, basePath)
+    val client = HoodieCLIUtils.createHoodieWriteClient(sparkSession, basePath, Map.empty,
+      tableName.asInstanceOf[Option[String]])
     var result = false
 
     try {
@@ -85,6 +89,3 @@ object CreateSavepointProcedure {
     override def get(): CreateSavepointProcedure = new CreateSavepointProcedure()
   }
 }
-
-
-

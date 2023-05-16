@@ -55,12 +55,12 @@ import org.apache.hudi.table.WorkloadStat;
 import org.apache.hudi.table.action.HoodieWriteMetadata;
 import org.apache.hudi.table.action.cluster.strategy.UpdateStrategy;
 
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 import org.apache.spark.Partitioner;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.storage.StorageLevel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -84,7 +84,7 @@ import static org.apache.hudi.config.HoodieWriteConfig.WRITE_STATUS_STORAGE_LEVE
 public abstract class BaseSparkCommitActionExecutor<T> extends
     BaseCommitActionExecutor<T, HoodieData<HoodieRecord<T>>, HoodieData<HoodieKey>, HoodieData<WriteStatus>, HoodieWriteMetadata<HoodieData<WriteStatus>>> {
 
-  private static final Logger LOG = LogManager.getLogger(BaseSparkCommitActionExecutor.class);
+  private static final Logger LOG = LoggerFactory.getLogger(BaseSparkCommitActionExecutor.class);
   protected final Option<BaseKeyGenerator> keyGeneratorOpt;
 
   public BaseSparkCommitActionExecutor(HoodieEngineContext context,
@@ -160,18 +160,14 @@ public abstract class BaseSparkCommitActionExecutor<T> extends
     // Handle records update with clustering
     HoodieData<HoodieRecord<T>> inputRecordsWithClusteringUpdate = clusteringHandleUpdate(inputRecords);
 
-    WorkloadProfile workloadProfile = null;
-    if (isWorkloadProfileNeeded()) {
-      context.setJobStatus(this.getClass().getSimpleName(), "Building workload profile:" + config.getTableName());
-      workloadProfile = new WorkloadProfile(buildProfile(inputRecordsWithClusteringUpdate), operationType, table.getIndex().canIndexLogFiles());
-      LOG.debug("Input workload profile :" + workloadProfile);
-    }
+    context.setJobStatus(this.getClass().getSimpleName(), "Building workload profile:" + config.getTableName());
+    WorkloadProfile workloadProfile =
+            new WorkloadProfile(buildProfile(inputRecordsWithClusteringUpdate), operationType, table.getIndex().canIndexLogFiles());
+    LOG.debug("Input workload profile :" + workloadProfile);
 
     // partition using the insert partitioner
     final Partitioner partitioner = getPartitioner(workloadProfile);
-    if (isWorkloadProfileNeeded()) {
-      saveWorkloadProfileMetadataToInflight(workloadProfile, instantTime);
-    }
+    saveWorkloadProfileMetadataToInflight(workloadProfile, instantTime);
 
     context.setJobStatus(this.getClass().getSimpleName(), "Doing partition and writing data: " + config.getTableName());
     HoodieData<WriteStatus> writeStatuses = mapPartitionsAsRDD(inputRecordsWithClusteringUpdate, partitioner);
