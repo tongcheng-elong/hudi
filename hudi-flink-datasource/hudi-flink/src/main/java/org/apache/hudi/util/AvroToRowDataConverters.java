@@ -43,6 +43,7 @@ import org.joda.time.DateTimeFieldType;
 import java.io.Serializable;
 import java.lang.reflect.Array;
 import java.nio.ByteBuffer;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -233,7 +234,8 @@ public class AvroToRowDataConverters {
               "Unexpected object type for TIMESTAMP logical type. Received: " + avroObject);
         }
       }
-      return TimestampData.fromInstant(instant);
+      return TimestampData.fromTimestamp(Timestamp.from(instant));
+//      return TimestampData.fromInstant(instant);
     };
   }
 
