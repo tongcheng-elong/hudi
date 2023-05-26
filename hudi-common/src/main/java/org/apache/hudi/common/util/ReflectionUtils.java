@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 /**
@@ -45,22 +46,16 @@ public class ReflectionUtils {
 
   private static final Logger LOG = LoggerFactory.getLogger(ReflectionUtils.class);
 
-  private static final Map<String, Class<?>> CLAZZ_CACHE = new HashMap<>();
+  private static final ConcurrentHashMap<String, Class<?>> CLAZZ_CACHE = new ConcurrentHashMap<>();
 
   public static Class<?> getClass(String clazzName) {
-    if (!CLAZZ_CACHE.containsKey(clazzName)) {
-      synchronized (CLAZZ_CACHE) {
-        if (!CLAZZ_CACHE.containsKey(clazzName)) {
-          try {
-            Class<?> clazz = Class.forName(clazzName);
-            CLAZZ_CACHE.put(clazzName, clazz);
-          } catch (ClassNotFoundException e) {
-            throw new HoodieException("Unable to load class", e);
-          }
-        }
+   return CLAZZ_CACHE.computeIfAbsent(clazzName, (cn) -> {
+      try {
+        return Class.forName(cn);
+      } catch (ClassNotFoundException e) {
+        throw new HoodieException("Unable to load class", e);
       }
-    }
-    return CLAZZ_CACHE.get(clazzName);
+    });
   }
 
   public static <T> T loadClass(String className) {

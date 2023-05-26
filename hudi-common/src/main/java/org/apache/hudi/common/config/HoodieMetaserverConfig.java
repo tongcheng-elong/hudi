@@ -116,7 +116,7 @@ public class HoodieMetaserverConfig extends HoodieConfig {
     }
 
     public HoodieMetaserverConfig build() {
-//      config.setDefaults(HoodieMetaserverConfig.class.getName());
+      config.setDefaults(HoodieMetaserverConfig.class.getName());
       return config;
     }
   }
